@@ -31,7 +31,7 @@ Timestamp,BatteryLevel
 2026-07-02 12:00:00,78
 ```
 
-If the driver state cannot be read, the script still appends a row with the timestamp and an error message in the `Error` column.
+The script always writes `Timestamp`, `BatteryLevel`, and `Error` columns. If the driver state cannot be read, the device is missing, or the reported battery level is invalid, it appends a row with the timestamp and an error message in the `Error` column.
 
 ### Scheduling
 
@@ -53,8 +53,9 @@ The viewer expects a CSV with these columns:
 
 - `Timestamp`
 - `BatteryLevel`
+- `Error` is optional and ignored by the viewer
 
-Rows must contain a valid timestamp and a numeric battery level. Invalid rows are ignored.
+Rows must contain a valid timestamp and a numeric battery level from 0 to 100. Invalid rows are ignored.
 
 ## UI output
 
@@ -78,5 +79,5 @@ The page shows:
 ## Notes
 
 - Timestamps are parsed as local time.
-- The chart uses Chart.js and the date-fns adapter.
-- The CSV parser is Papa Parse.
+- The chart uses Chart.js 4.5.1 and chartjs-adapter-date-fns 3.0.0.
+- The CSV parser is Papa Parse 5.5.4.

@@ -28,6 +28,7 @@ dropzone.addEventListener("drop", (event) => {
 
 function loadFile(file) {
   errorBox.textContent = "";
+  clearResults();
 
   Papa.parse(file, {
     header: true,
@@ -67,7 +68,9 @@ function parseRows(rawRows) {
         row.timestamp &&
         row.date instanceof Date &&
         !Number.isNaN(row.date.getTime()) &&
-        Number.isFinite(row.level),
+        Number.isFinite(row.level) &&
+        row.level >= 0 &&
+        row.level <= 100,
     )
     .sort((a, b) => a.date - b.date);
 }
@@ -94,6 +97,8 @@ function getDischargeCycles(rows) {
       } else {
         current.end = curr;
       }
+    } else if (delta === 0 && current) {
+      current.end = curr;
     } else if (delta > 0) {
       if (current && current.start.level > current.end.level) {
         cycles.push(current);
@@ -125,11 +130,12 @@ function getDischargeCycles(rows) {
 
 function render(rows) {
   const cycles = getDischargeCycles(rows);
+  const levels = rows.map((row) => row.level);
 
   document.getElementById("rowsParsed").textContent = rows.length;
   document.getElementById("cycleCount").textContent = cycles.length;
   document.getElementById("range").textContent =
-    `${Math.min(...rows.map((r) => r.level))}% to ${Math.max(...rows.map((r) => r.level))}%`;
+    `${Math.min(...levels)}% to ${Math.max(...levels)}%`;
 
   const averageLossPerDay = cycles.length
     ? cycles.reduce((sum, cycle) => sum + cycle.lossPerDay, 0) / cycles.length
@@ -141,6 +147,19 @@ function render(rows) {
 
   renderChart(rows);
   renderCycleTable(cycles);
+}
+
+function clearResults() {
+  document.getElementById("rowsParsed").textContent = "0";
+  document.getElementById("cycleCount").textContent = "0";
+  document.getElementById("avgLossDay").textContent = "-";
+  document.getElementById("range").textContent = "-";
+  document.getElementById("cycleTable").textContent = "";
+
+  if (chart) {
+    chart.destroy();
+    chart = null;
+  }
 }
 
 function renderChart(rows) {
