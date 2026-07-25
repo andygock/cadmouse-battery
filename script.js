@@ -69,7 +69,7 @@ function parseRows(rawRows) {
         row.date instanceof Date &&
         !Number.isNaN(row.date.getTime()) &&
         Number.isFinite(row.level) &&
-        row.level >= 0 &&
+        row.level > 0 &&
         row.level <= 100,
     )
     .sort((a, b) => a.date - b.date);
