@@ -2,7 +2,18 @@ const fileInput = document.getElementById("fileInput");
 const dropzone = document.getElementById("dropzone");
 const errorBox = document.getElementById("error");
 
+// The cache deliberately contains a single, predictably keyed snapshot. Using
+// `put` with this key means every successful CSV import replaces the previous
+// plot data instead of allowing old imports to accumulate in IndexedDB.
+const DATABASE_NAME = "cadmouse-battery";
+const DATABASE_VERSION = 1;
+const STORE_NAME = "plot-data";
+const SNAPSHOT_KEY = "latest";
+
 let chart;
+let fileLoadStarted = false;
+
+restorePlotData();
 
 fileInput.addEventListener("change", (event) => {
   const file = event.target.files[0];
@@ -27,6 +38,9 @@ dropzone.addEventListener("drop", (event) => {
 });
 
 function loadFile(file) {
+  // Prevent an in-flight cache restore from replacing a plot the user has
+  // explicitly chosen after opening the page.
+  fileLoadStarted = true;
   errorBox.textContent = "";
   clearResults();
 
@@ -41,9 +55,101 @@ function loadFile(file) {
       }
 
       render(rows);
+
+      // Rendering should remain successful even when browser storage is
+      // unavailable (for example, in a restricted private-browsing context).
+      // A storage failure is therefore reported in the console without hiding
+      // or clearing the valid plot the user has just loaded.
+      savePlotData(rows).catch((error) => {
+        console.error("Could not save the plot data to IndexedDB.", error);
+      });
     },
     error: (err) => showError(err.message),
   });
+}
+
+function openDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
+
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(STORE_NAME)) {
+        database.createObjectStore(STORE_NAME, { keyPath: "id" });
+      }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function savePlotData(rows) {
+  const database = await openDatabase();
+
+  try {
+    await new Promise((resolve, reject) => {
+      const transaction = database.transaction(STORE_NAME, "readwrite");
+      const store = transaction.objectStore(STORE_NAME);
+
+      // Dates are reconstructed from the original timestamp text on restore,
+      // so the persisted snapshot only contains the data needed by the plot.
+      store.put({
+        id: SNAPSHOT_KEY,
+        rows: rows.map((row) => ({
+          timestamp: row.timestamp,
+          level: row.level,
+        })),
+      });
+
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+  } finally {
+    database.close();
+  }
+}
+
+async function restorePlotData() {
+  try {
+    const database = await openDatabase();
+    let snapshot;
+
+    try {
+      snapshot = await new Promise((resolve, reject) => {
+        const transaction = database.transaction(STORE_NAME, "readonly");
+        const request = transaction.objectStore(STORE_NAME).get(SNAPSHOT_KEY);
+
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    } finally {
+      database.close();
+    }
+
+    if (!snapshot || !Array.isArray(snapshot.rows)) {
+      return;
+    }
+
+    // Pass restored values through the same validation and sorting used for a
+    // newly imported CSV. This prevents malformed or obsolete cached records
+    // from reaching Chart.js if the stored schema ever changes.
+    const rows = parseRows(
+      snapshot.rows.map((row) => ({
+        Timestamp: row.timestamp,
+        BatteryLevel: row.level,
+      })),
+    );
+
+    if (rows.length >= 2 && !fileLoadStarted) {
+      render(rows);
+    }
+  } catch (error) {
+    // IndexedDB is an enhancement rather than a requirement for importing a
+    // CSV, so a restore failure must not make the rest of the app unusable.
+    console.error("Could not restore the plot data from IndexedDB.", error);
+  }
 }
 
 function parseRows(rawRows) {
